@@ -26,6 +26,13 @@
 ###         （本方法论的最终产出，接 09~11 做实验候选）。
 ###   [修7] 健壮性：重复 SYMBOL 去重、缓存文件名带基因数、NA 比例
 ###         检查决定 cor 的 use 策略。
+###   [修9] 稳定性度量改用包含度（v2.2，26Q1 实测驱动）：
+###         Jaccard 把"模块并入更大社区"（层级吸收）误判为不稳定——
+###         实测 k=50/100 时参考模块大小比中位数 11x/47x，Jaccard
+###         中位数崩至 0.088/0.015，核心模块 0 个。而思想里的"不散架"
+###         指成员仍抱团，与社区是否长大无关。改用包含度
+###         |M0∩M'|/|M0|（持续）与 |Me∩M0|/|Me|（早成），
+###         Jaccard 留档对照。
 ###   [修8] 早成恒存：思想原话是"一开始形成了以后就会一直存在"。
 ###         只查 k>ref_k 的保持性会让 k=20 才冒出来的"晚熟模块"也
 ###         当 core。现在反向追踪 k<ref_k：模块在更早尺度若追溯不到
@@ -322,9 +329,14 @@ for (sgn in c("positive", "negative")) {
       mem2 <- membership_list[[key]]
       if (nrow(mem2) == 0) { row[[paste0("stab_k", kk)]] <- NA; next }
       mods2 <- split(mem2$gene, mem2$module)
-      js <- vapply(mods2, function(x) jaccard(genes0, x), numeric(1))
-      best_i <- which.max(js)
-      row[[paste0("stab_k", kk)]] <- js[best_i]
+      ## [修9] 持续性用包含度 |M0∩M'|/|M0|：模块整体并入更大社区 =
+      ## 层级吸收，成员仍抱团，不算散架；碎裂时包含度自然崩塌。
+      ## Jaccard 会把吸收误判为不稳定，仅留档对照。
+      jj <- vapply(mods2, function(x) jaccard(genes0, x), numeric(1))
+      cc <- vapply(mods2, function(x) length(intersect(genes0, x)) / length(genes0), numeric(1))
+      best_i <- which.max(cc)
+      row[[paste0("stab_k", kk)]] <- cc[best_i]
+      row[[paste0("jac_k", kk)]]  <- jj[best_i]
       row[[paste0("ratio_k", kk)]] <- length(mods2[[best_i]]) / length(genes0)
     }
     ## [修8] 早成恒存：反向追踪 k<ref_k（从 k=3 起，k 太小时网络尚未成形）
@@ -335,7 +347,8 @@ for (sgn in c("positive", "negative")) {
       if (nrow(mem2) == 0) next
       mods2 <- split(mem2$gene, mem2$module)
       if (!length(mods2)) next
-      js_early <- max(vapply(mods2, function(x) jaccard(genes0, x), numeric(1)))
+      ## [修9] 前身模块是否大体保留在 M0 内：|M_e∩M0|/|M_e|
+      js_early <- max(vapply(mods2, function(x) length(intersect(genes0, x)) / length(x), numeric(1)))
       row[[paste0("early_k", strsplit(key, " ")[[1]][2])]] <- js_early
       if (!is.na(js_early) && js_early < early_thre) early_ok <- FALSE
     }
@@ -345,14 +358,11 @@ for (sgn in c("positive", "negative")) {
   stab <- do.call(rbind, rows)
   if (is.null(stab)) next
   stab_cols <- grep("^stab_", colnames(stab), value = TRUE)
-  ratio_cols <- grep("^ratio_", colnames(stab), value = TRUE)
-  ## 注意：三条件间必须全用 &（向量化）。& 优先级高于 &&，
-  ## 混用会变成 (a & b) && c，对长度>1 的向量求 && 直接报错。
+  ## [修9] 核心 = 早成（formed_early）+ 所有更大尺度下成员保持抱团
+  ## （包含度 ≥ stab_thre）。大小比仅作信息列，层级吸收不再一票否决。
   stab$core <- stab$formed_early &
     apply(stab[, stab_cols, drop = FALSE], 1, function(x)
-      all(!is.na(x) & x >= stab_thre)) &
-    apply(stab[, ratio_cols, drop = FALSE], 1, function(x)
-      all(!is.na(x) & x >= size_ratio_thre[1] & x <= size_ratio_thre[2]))
+      all(!is.na(x) & x >= stab_thre))
   stab <- stab[order(-stab$core, -stab$size), ]
   stab$sign <- sgn
   stability_all[[sgn]] <- stab
