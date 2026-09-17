@@ -26,6 +26,10 @@
 ###         （本方法论的最终产出，接 09~11 做实验候选）。
 ###   [修7] 健壮性：重复 SYMBOL 去重、缓存文件名带基因数、NA 比例
 ###         检查决定 cor 的 use 策略。
+###   [修8] 早成恒存：思想原话是"一开始形成了以后就会一直存在"。
+###         只查 k>ref_k 的保持性会让 k=20 才冒出来的"晚熟模块"也
+###         当 core。现在反向追踪 k<ref_k：模块在更早尺度若追溯不到
+###         （Jaccard < early_thre），formed_early=FALSE，不进核心。
 ###   [新]  节点中心性（SNA 指标，见下"中心性模块"说明）。
 
 ### ================================================================
@@ -135,6 +139,7 @@ k_grid          <- c(1, 2, 3, 5, 10, 20, 50, 100)  # k 尺度网格：从"互为
 rho_min         <- 0.2            # 边的最低 |rho| 门槛（课堂 rho_use=0.2）
 ref_k           <- 10             # 稳定性/中心性参考尺度（模块已成型又不至于过稀释）
 stab_thre       <- 0.7            # Jaccard ≥ 0.7 视为"该尺度下模块保持"
+early_thre      <- 0.5            # [修8] 更早尺度可追溯阈值（早成恒存判据）
 size_ratio_thre <- c(0.5, 2)      # 匹配模块大小比在此区间外 = 碎裂/吞并，不算稳定
 min_module_size <- 5              # 参与稳定性检验的最小模块规模
 n_louvain_runs  <- 3              # 每个 (符号,k) 的 Louvain 重复次数，取模块度最高者
@@ -318,14 +323,28 @@ for (sgn in c("positive", "negative")) {
       row[[paste0("stab_k", kk)]] <- js[best_i]
       row[[paste0("ratio_k", kk)]] <- length(mods2[[best_i]]) / length(genes0)
     }
+    ## [修8] 早成恒存：反向追踪 k<ref_k（从 k=3 起，k 太小时网络尚未成形）
+    smaller_keys <- paste(sgn, k_grid[k_grid < ref_k & k_grid >= 3])
+    early_ok <- TRUE
+    for (key in smaller_keys) {
+      mem2 <- membership_list[[key]]
+      if (nrow(mem2) == 0) next
+      mods2 <- split(mem2$gene, mem2$module)
+      if (!length(mods2)) next
+      js_early <- max(vapply(mods2, function(x) jaccard(genes0, x), numeric(1)))
+      row[[paste0("early_k", strsplit(key, " ")[[1]][2])]] <- js_early
+      if (!is.na(js_early) && js_early < early_thre) early_ok <- FALSE
+    }
+    row$formed_early <- early_ok
     rows[[mname]] <- row
   }
   stab <- do.call(rbind, rows)
   if (is.null(stab)) next
   stab_cols <- grep("^stab_", colnames(stab), value = TRUE)
   ratio_cols <- grep("^ratio_", colnames(stab), value = TRUE)
-  stab$core <- apply(stab[, stab_cols, drop = FALSE], 1, function(x)
-    all(!is.na(x) & x >= stab_thre)) &&
+  stab$core <- stab$formed_early &
+    apply(stab[, stab_cols, drop = FALSE], 1, function(x)
+      all(!is.na(x) & x >= stab_thre)) &&
     apply(stab[, ratio_cols, drop = FALSE], 1, function(x)
       all(!is.na(x) & x >= size_ratio_thre[1] & x <= size_ratio_thre[2]))
   stab <- stab[order(-stab$core, -stab$size), ]
