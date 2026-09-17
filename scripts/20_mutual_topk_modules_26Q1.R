@@ -203,6 +203,10 @@ if (file.exists(cor_file)) {
 }
 rm(geneEffect); invisible(gc())
 diag(M) <- 0   # 基因与自身相关 = 1，必须清掉，否则排名永远是自己第一
+## pairwise.complete.obs 会给"无共同观测/零方差"的基因对留下 NA，
+## NA 会在 mutual rank、邻接矩阵、符号过滤里层层传染。
+## 语义处理：NA = 无关系证据 = 0，置零后下游无需任何 NA 分支。
+M[is.na(M)] <- 0
 
 #############################################################
 ## 第 3 部分：mutual rank（|rho| 降序）+ bipolar top-k
