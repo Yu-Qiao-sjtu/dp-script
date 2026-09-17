@@ -1,0 +1,14 @@
+# R 运行产物
+output/
+*.Rproj
+.Rproj.user
+.Rhistory
+.RData
+Rplots.pdf
+
+# 大文件一律不入库（数据与中间结果放 data/ 与 TM00/output）
+*.rds
+*.csv
+*.pdf
+!scripts/*.R
+!scripts/*.r
