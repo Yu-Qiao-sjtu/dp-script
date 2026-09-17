@@ -346,9 +346,11 @@ for (sgn in c("positive", "negative")) {
   if (is.null(stab)) next
   stab_cols <- grep("^stab_", colnames(stab), value = TRUE)
   ratio_cols <- grep("^ratio_", colnames(stab), value = TRUE)
+  ## 注意：三条件间必须全用 &（向量化）。& 优先级高于 &&，
+  ## 混用会变成 (a & b) && c，对长度>1 的向量求 && 直接报错。
   stab$core <- stab$formed_early &
     apply(stab[, stab_cols, drop = FALSE], 1, function(x)
-      all(!is.na(x) & x >= stab_thre)) &&
+      all(!is.na(x) & x >= stab_thre)) &
     apply(stab[, ratio_cols, drop = FALSE], 1, function(x)
       all(!is.na(x) & x >= size_ratio_thre[1] & x <= size_ratio_thre[2]))
   stab <- stab[order(-stab$core, -stab$size), ]
